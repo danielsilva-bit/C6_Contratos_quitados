@@ -112,6 +112,21 @@
   .pager button:hover:not(:disabled){border-color:var(--brand);}
   .pager .pageinfo{font-family:'IBM Plex Mono',monospace;font-size:.78rem;color:var(--muted);}
 
+  /* ===== EMAIL POPUP ===== */
+  #emailPopup{
+    position:fixed;inset:0;background:rgba(11,12,16,.55);display:none;align-items:center;justify-content:center;z-index:900;padding:20px;
+  }
+  .email-popup-card{background:#fff;border-radius:14px;padding:26px 24px;max-width:360px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);text-align:center;}
+  .email-popup-card .icon{font-size:28px;margin-bottom:10px;}
+  .email-popup-card h3{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;margin-bottom:8px;}
+  .email-popup-card p{font-size:.85rem;color:var(--muted);margin-bottom:4px;}
+  .email-popup-card .addr{font-weight:600;color:var(--ink);}
+  .email-popup-actions{display:flex;gap:10px;margin-top:16px;}
+  .email-popup-actions button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:600;font-size:.85rem;cursor:pointer;}
+  .email-popup-actions .yes{background:var(--green);color:#fff;}
+  .email-popup-actions .no{background:#fff;color:var(--brand);border:1px solid var(--line);}
+  #emailPopupStatus{margin-top:10px;font-size:.8rem;min-height:16px;}
+
   .no-data{text-align:center;padding:40px;color:var(--muted);}
   .empty-state{background:var(--card);border:1.5px dashed var(--line);border-radius:14px;padding:50px 24px;text-align:center;color:var(--muted);}
   .empty-state h2{font-family:'Space Grotesk',sans-serif;color:var(--ink);margin-bottom:8px;font-size:1.1rem;}
@@ -219,6 +234,20 @@
       <div class="pager" id="pager"></div>
     </div>
 
+  </div>
+</div>
+
+<div id="emailPopup">
+  <div class="email-popup-card">
+    <div class="icon">📧</div>
+    <h3>Receber também por e-mail?</h3>
+    <p>Podemos enviar esse mesmo relatório para</p>
+    <p class="addr" id="emailPopupAddress">-</p>
+    <div class="email-popup-actions">
+      <button class="no" onclick="closeEmailPopup()">Não, obrigado</button>
+      <button class="yes" onclick="confirmSendEmail()">Sim, enviar</button>
+    </div>
+    <div id="emailPopupStatus"></div>
   </div>
 </div>
 
@@ -592,8 +621,7 @@ function updateCharts(){
 }
 
 // ================= DOWNLOAD =================
-function downloadReport(){
-  if(allData.length===0){ alert('Nenhum lead com interesse para baixar.'); return; }
+function buildReportCSV(){
   const headers = ['Status', ...DOWNLOAD_COLUMNS];
   let csv = headers.join(',') + '\n';
   allData.forEach(row=>{
@@ -604,13 +632,67 @@ function downloadReport(){
     })];
     csv += values.join(',') + '\n';
   });
+  const filename = `egv-leads-cominteresse-${new Date().toISOString().split('T')[0]}.csv`;
+  return { csv, filename };
+}
+
+let pendingReport = null;
+
+function downloadReport(){
+  if(allData.length===0){ alert('Nenhum lead com interesse para baixar.'); return; }
+  const { csv, filename } = buildReportCSV();
+  pendingReport = { csv, filename };
+
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `egv-leads-cominteresse-${new Date().toISOString().split('T')[0]}.csv`;
+  link.download = filename;
   link.style.visibility='hidden';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
   logExtract();
+
+  openEmailPopup();
+}
+
+function openEmailPopup(){
+  document.getElementById('emailPopupAddress').textContent = session ? session.email : '';
+  document.getElementById('emailPopupStatus').textContent = '';
+  document.getElementById('emailPopup').style.display = 'flex';
+}
+function closeEmailPopup(){
+  document.getElementById('emailPopup').style.display = 'none';
+  pendingReport = null;
+}
+async function confirmSendEmail(){
+  if(!pendingReport || !session) { closeEmailPopup(); return; }
+  const statusEl = document.getElementById('emailPopupStatus');
+  statusEl.textContent = 'Enviando...';
+  statusEl.style.color = '#6B7280';
+  try{
+    const res = await fetch(LOG_WEBAPP_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({
+        action:'sendEmail',
+        email: session.email,
+        row: logRowRef,
+        csvContent: pendingReport.csv,
+        filename: pendingReport.filename
+      })
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      statusEl.textContent = '✓ Enviado para ' + session.email;
+      statusEl.style.color = '#2E8B57';
+      setTimeout(closeEmailPopup, 1800);
+    } else {
+      statusEl.textContent = 'Não foi possível enviar. Tente novamente.';
+      statusEl.style.color = '#B23A48';
+    }
+  }catch(e){
+    statusEl.textContent = 'Não foi possível enviar. Tente novamente.';
+    statusEl.style.color = '#B23A48';
+  }
 }
 
 // ================= INIT =================
