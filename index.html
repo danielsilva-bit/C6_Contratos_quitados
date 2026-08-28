@@ -127,6 +127,23 @@
   .email-popup-actions .no{background:#fff;color:var(--brand);border:1px solid var(--line);}
   #emailPopupStatus{margin-top:10px;font-size:.8rem;min-height:16px;}
 
+  /* ===== SCHEDULE POPUP ===== */
+  #schedulePopup{
+    position:fixed;inset:0;background:rgba(11,12,16,.55);display:none;align-items:center;justify-content:center;z-index:900;padding:20px;
+  }
+  .schedule-card{background:#fff;border-radius:14px;padding:26px 24px;max-width:380px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.3);}
+  .schedule-card .icon{font-size:26px;margin-bottom:8px;text-align:center;}
+  .schedule-card h3{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;margin-bottom:6px;text-align:center;}
+  .schedule-card p{font-size:.83rem;color:var(--muted);margin-bottom:16px;text-align:center;}
+  .schedule-slot{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+  .schedule-slot label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);width:78px;flex-shrink:0;}
+  .schedule-slot select{flex:1;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:.86rem;font-family:'Inter',sans-serif;background:#fff;}
+  .schedule-actions{display:flex;gap:10px;margin-top:14px;}
+  .schedule-actions button{flex:1;padding:10px;border-radius:8px;border:none;font-weight:600;font-size:.85rem;cursor:pointer;}
+  .schedule-actions .save{background:var(--brand);color:#fff;}
+  .schedule-actions .cancel{background:#fff;color:var(--brand);border:1px solid var(--line);}
+  #schedulePopupStatus{margin-top:10px;font-size:.8rem;min-height:16px;text-align:center;}
+
   .no-data{text-align:center;padding:40px;color:var(--muted);}
   .empty-state{background:var(--card);border:1.5px dashed var(--line);border-radius:14px;padding:50px 24px;text-align:center;color:var(--muted);}
   .empty-state h2{font-family:'Space Grotesk',sans-serif;color:var(--ink);margin-bottom:8px;font-size:1.1rem;}
@@ -176,6 +193,7 @@
       <div class="session-info">Logado como <b id="sessionEmail">-</b></div>
       <div class="btn-row">
         <button class="btn btn-gold" onclick="fetchFromSheet()">↻ Atualizar dados</button>
+        <button class="btn btn-outline" onclick="openSchedulePopup()" style="background:#fff;">🕐 Agendar relatório</button>
         <button class="btn btn-ghost" onclick="handleLogout()">Sair</button>
       </div>
     </div>
@@ -248,6 +266,27 @@
       <button class="yes" onclick="confirmSendEmail()">Sim, enviar</button>
     </div>
     <div id="emailPopupStatus"></div>
+  </div>
+</div>
+
+<div id="schedulePopup">
+  <div class="schedule-card">
+    <div class="icon">🕐</div>
+    <h3>Agendar relatório por e-mail</h3>
+    <p>Escolha até 2 horários do dia para receber automaticamente o relatório de leads com interesse, sem precisar abrir o dashboard.</p>
+    <div class="schedule-slot">
+      <label>Horário 1</label>
+      <select id="scheduleSlot1"><option value="">— Desativado —</option></select>
+    </div>
+    <div class="schedule-slot">
+      <label>Horário 2</label>
+      <select id="scheduleSlot2"><option value="">— Desativado —</option></select>
+    </div>
+    <div class="schedule-actions">
+      <button class="cancel" onclick="closeSchedulePopup()">Cancelar</button>
+      <button class="save" onclick="saveSchedule()">Salvar agendamento</button>
+    </div>
+    <div id="schedulePopupStatus"></div>
   </div>
 </div>
 
@@ -691,6 +730,75 @@ async function confirmSendEmail(){
     }
   }catch(e){
     statusEl.textContent = 'Não foi possível enviar. Tente novamente.';
+    statusEl.style.color = '#B23A48';
+  }
+}
+
+// ================= SCHEDULE =================
+function buildTimeOptions(selectEl, selectedValue){
+  selectEl.innerHTML = '<option value="">— Desativado —</option>';
+  for(let h=0; h<24; h++){
+    for(let m=0; m<60; m+=15){
+      const hh = String(h).padStart(2,'0');
+      const mm = String(m).padStart(2,'0');
+      const val = `${hh}:${mm}`;
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = val;
+      if(val === selectedValue) opt.selected = true;
+      selectEl.appendChild(opt);
+    }
+  }
+}
+
+async function openSchedulePopup(){
+  const statusEl = document.getElementById('schedulePopupStatus');
+  statusEl.textContent = '';
+  const s1 = document.getElementById('scheduleSlot1');
+  const s2 = document.getElementById('scheduleSlot2');
+  buildTimeOptions(s1, '');
+  buildTimeOptions(s2, '');
+  document.getElementById('schedulePopup').style.display = 'flex';
+  if(!session) return;
+  try{
+    const res = await fetch(LOG_WEBAPP_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'getSchedule', email: session.email})
+    });
+    const data = await res.json();
+    if(data && data.ok && data.times){
+      buildTimeOptions(s1, data.times[0] || '');
+      buildTimeOptions(s2, data.times[1] || '');
+    }
+  }catch(e){ console.warn('Não foi possível carregar o agendamento atual:', e); }
+}
+function closeSchedulePopup(){
+  document.getElementById('schedulePopup').style.display = 'none';
+}
+async function saveSchedule(){
+  if(!session) return;
+  const statusEl = document.getElementById('schedulePopupStatus');
+  const t1 = document.getElementById('scheduleSlot1').value;
+  const t2 = document.getElementById('scheduleSlot2').value;
+  statusEl.textContent = 'Salvando...';
+  statusEl.style.color = '#6B7280';
+  try{
+    const res = await fetch(LOG_WEBAPP_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'saveSchedule', email: session.email, times:[t1,t2]})
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      statusEl.textContent = '✓ Agendamento salvo';
+      statusEl.style.color = '#2E8B57';
+      setTimeout(closeSchedulePopup, 1400);
+    } else {
+      statusEl.textContent = (data && data.error) ? 'Erro: '+data.error : 'Não foi possível salvar.';
+      statusEl.style.color = '#B23A48';
+    }
+  }catch(e){
+    statusEl.textContent = 'Não foi possível salvar. Tente novamente.';
     statusEl.style.color = '#B23A48';
   }
 }
